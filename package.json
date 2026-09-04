@@ -1,0 +1,22 @@
+{
+  "name": "candela",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^2.3.0",
+    "@noble/hashes": "^1.8.0",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0"
+  }
+}
