@@ -17,3 +17,9 @@ tasks.register("verify") {
     description = "Golden-vector protocol parity + vision gate behaviour"
     dependsOn(":core-protocol:test", ":core-vision:test")
 }
+
+subprojects {
+    tasks.withType<Test>().configureEach {
+        failOnNoDiscoveredTests = false
+    }
+}

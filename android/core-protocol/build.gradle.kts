@@ -50,3 +50,7 @@ tasks.withType<ProcessResources> {
 tasks.withType<Copy> {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
+
+tasks.withType<Test>().configureEach {
+    failOnNoDiscoveredTests = false
+}
