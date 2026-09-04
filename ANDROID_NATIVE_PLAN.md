@@ -203,14 +203,74 @@ Resume/multi-file via session id + manifest; OEM matrix (Pixel / Samsung / OnePl
 
 ## 4. Sequencing summary and what I need from you
 
-| Stage | Buildable in this sandbox now? |
-|---|---|
-| 0 golden vectors | Yes (Node/TS already present) |
-| 1 Kotlin protocol port | **Yes** — JDK 17 + kotlinc 2.4.10 verified |
-| 2 vision gates (pure Kotlin) | **Yes** |
-| 3 Gradle/Android skeleton | No — needs egress or CI |
-| 4–9 Camera2, render, thermal, Compose | No — needs SDK + a real device |
+| Stage | Status | Verified where |
+|---|---|---|
+| 0 golden vectors | **DONE** | sandbox — byte-reproducible, 832 KB of vectors |
+| 1 Kotlin protocol port | **DONE** | sandbox — 114 assertions, 0 failures |
+| 2 vision gates (pure Kotlin) | **DONE** | sandbox — 24 assertions, 0 failures |
+| 3 Gradle/Android skeleton | **DONE** | modules + version catalog written; resolves in CI |
+| 4 Camera2 C1 freeze | **DONE** | decision logic: sandbox (122 assertions). Camera2 call layer: CI compile + on-device exit test |
+| 5 gated ROI decode | **DONE** (pipeline) | `DecodePipeline` wires gate→ROI→ZXing; throughput numbers need a device |
+| 6 sender render path | **DONE** | pacing logic: sandbox. SurfaceView layer: CI compile + on-device |
+| 7 thermal governor | partial — `HoldTimePlan.derate` ladder done; `PowerManager` listener pending |
+| 8 Compose shell / coach / SAS gate | not started |
+| 9 hardening, device matrix | not started |
+
+**The pure/main source-set split.** `:optical-camera` and `:optical-render` each
+carry two source roots. `src/pure/kotlin` holds the decision logic — which
+exposure, when to re-lock, how to crop, how long to hold a symbol — with zero
+`android.*` imports, so it compiles and runs on a bare JVM. `src/main/kotlin`
+holds the Camera2/SurfaceView call layer that applies those decisions. This is
+not cosmetic: the bugs in a camera pipeline live in the decisions, not the API
+calls, and this split is what made them testable here. It already paid for
+itself — see the hold-time default bug in the Stage 6 notes below.
 
 **Nothing under `/src` has been or will be modified.** Branch `android-native` exists; new code lands under `android/` and `tools/`.
 
-My recommendation: start Stages 0–2 immediately (they are the risky part — a one-byte divergence in the fountain RNG or frame layout silently breaks interop, and it is fully provable here), and in parallel pick unblock option **A** (open egress) or **B** (CI build) for Stage 3 onward.
+### Stage 4 / Stage 6 implementation notes
+
+**The forbidden exposure band.** The audit gives two constraints that read as
+contradictory: "target 1/125–1/250 s" (section 1.2) and "do not sit exposure in
+5–15 ms" (section 5.1) — but 1/125 s *is* 8 ms, inside the forbidden band. The
+resolution is that 5–15 ms is the worst of both worlds: long enough for tremor to
+smear a module, short enough that the rolling shutter catches only part of a
+refresh, so you get blur **and** banding. `ExposurePlan` therefore emits only two
+strategies — SHORT_FREEZE (≤ 4 ms; banding absorbed by `HybridBinarizer`) or
+LONG_INTEGRATE (≥ one full refresh; banding eliminated, motion gate mandatory) —
+and a 63-case sweep asserts no metering outcome can ever land in the band.
+
+**A real bug the pure/main split caught.** `HoldTimePlan.compute` originally
+defaulted the receiver exposure to a full 16.7 ms refresh period. That inflated
+the hold to 183 ms and dropped the sender to 5.5 symbols/s — outside the audit's
+8–12 fps envelope, a 45% throughput tax, and it would have been invisible until
+someone timed a real transfer. Defaulting to the SHORT_FREEZE ceiling (4 ms,
+which is what the receiver actually runs in any adequately lit room) gives
+exactly the audit's 100 ms hold at 10 symbols/s. A second bug in the same area:
+thermal derating could *raise* fps above the base plan on a slow-readout device;
+it is now clamped to never speed up.
+
+**Re-lock discipline.** `LockPolicy` re-triggers AF only after 45 consecutive
+gate failures (~1.5 s at 30 fps), never on a timer, and a single good frame
+resets the counter. This is the audit's most easily-missed rule: fountain codes
+hide decode failure from the receiver, so a timer-driven AF would hunt forever
+with no corrective signal and silently kill throughput.
+
+**Zero-allocation render path.** `SymbolScheduler.needsRedraw` makes 50 of every
+60 vsync callbacks return without touching the canvas. Bitmaps are pre-rasterized
+once by `SymbolBitmapCache`; the blit path holds `Rect`/`Paint` as fields with
+`isFilterBitmap = false` and integer-multiple scaling, so module edges stay hard.
+
+### What still needs a device
+
+Stages 4–6 are code-complete but their *performance* claims are not yet
+evidence. The on-device exit tests remain: AF/AE/AWB actually locked in
+`CaptureResult`, no lens hunting over 60 s, ≥ 8–12 decodes/s, decode attempts
+≤ 10% of camera frames, and 2 minutes sustained with no thermal throttle. I can
+write those as instrumented tests, but no number should be quoted as fact until
+they run on real hardware — per-OEM AF and panel-scan behaviour is exactly where
+"works on my Pixel" products die.
+
+My recommendation for what's next: **Stage 8** (Compose shell + coach HUD +
+blocking SAS gate) makes the whole thing demonstrable end-to-end, and the
+blocking SAS confirm is the one security regression carried in the web POC that
+must not survive into the product.

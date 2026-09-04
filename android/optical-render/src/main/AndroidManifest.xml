@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      No INTERNET permission, deliberately and permanently.
+      The strongest possible proof of the "completely offline / zero radio"
+      claim is that the code physically cannot open a socket.
+    -->
+</manifest>

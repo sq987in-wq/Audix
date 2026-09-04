@@ -27,7 +27,10 @@ include(":core-protocol")
 include(":core-vision")
 
 // Android modules. Uncommented as each stage lands (see ANDROID_NATIVE_PLAN.md).
-// include(":optical-camera")
-// include(":optical-render")
+// Stage 4 (Camera2 receiver) and Stage 6 (SurfaceView sender) are implemented.
+// Their pure decision logic is verified on a bare JVM by ./android/verify-local.sh;
+// the Android call layers build in CI, which has the SDK.
+include(":optical-camera")
+include(":optical-render")
 // include(":platform")
 // include(":app")

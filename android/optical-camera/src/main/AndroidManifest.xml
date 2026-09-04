@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- Camera2 manual sensor control is what C1 depends on; without it the
+         receiver degrades to AE-lock only and the coach must say so. -->
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.capability.manual_sensor"
+        android:required="false" />
+
+    <!--
+      No INTERNET permission, deliberately and permanently.
+      The strongest possible proof of the "completely offline / zero radio"
+      claim is that the code physically cannot open a socket.
+    -->
+</manifest>

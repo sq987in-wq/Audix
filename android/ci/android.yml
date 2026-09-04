@@ -82,6 +82,25 @@ jobs:
         working-directory: android
         run: gradle --no-daemon verify
 
+      # Stage 4/6 pure decision logic (exposure strategy, AF/AE lock policy, YUV
+      # ROI math, hold-time pacing). Compiled with kotlinc so it runs without the
+      # Android SDK — identical to ./android/verify-local.sh.
+      - name: Set up Kotlin compiler
+        run: |
+          npm pack kotlin-compiler --silent >/dev/null
+          mkdir -p "$HOME/kotlinc" && tar xzf kotlin-compiler-*.tgz -C "$HOME/kotlinc"
+          chmod +x "$HOME/kotlinc/package/bin/"*
+          echo "$HOME/kotlinc/package/bin" >> "$GITHUB_PATH"
+
+      - name: Verify Stage 4 + Stage 6 logic
+        run: |
+          kotlinc \
+            android/optical-camera/src/pure/kotlin/app/candela/camera/*.kt \
+            android/optical-render/src/pure/kotlin/app/candela/render/*.kt \
+            android/optical-camera/src/pure/test/kotlin/app/candela/camera/*.kt \
+            -include-runtime -d stage46.jar
+          java -cp stage46.jar app.candela.camera.CameraLogicTestsKt
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -98,7 +117,7 @@ jobs:
   # instead of failing red on work that has not started.
   # ---------------------------------------------------------------------------
   apk:
-    name: Build debug APK
+    name: Build Android modules / APK
     runs-on: ubuntu-latest
     needs: kotlin-verify
     steps:
@@ -115,19 +134,22 @@ jobs:
           fi
 
       - name: Set up JDK 17
-        if: steps.probe.outputs.ready == 'true'
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
       - name: Set up Android SDK
-        if: steps.probe.outputs.ready == 'true'
         uses: android-actions/setup-android@v3
 
       - name: Set up Gradle
-        if: steps.probe.outputs.ready == 'true'
         uses: gradle/actions/setup-gradle@v4
+
+      # Stage 4/6 Android layers compile even before the app module exists.
+      - name: Assemble library modules
+        if: steps.probe.outputs.ready == 'false'
+        working-directory: android
+        run: gradle --no-daemon :optical-camera:assembleDebug :optical-render:assembleDebug
 
       - name: Assemble debug APK
         if: steps.probe.outputs.ready == 'true'

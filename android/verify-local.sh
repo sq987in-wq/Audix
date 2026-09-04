@@ -38,6 +38,16 @@ kotlinc \
   android/core-vision/src/test/kotlin/app/candela/vision/*.kt \
   -include-runtime -d "$OUT/vision-tests.jar" 2>&1 | grep -v '^warning: ' || true
 
+# Stage 4 + Stage 6 pure logic. The Camera2/SurfaceView call layers under
+# src/main/kotlin need the Android SDK and are built in CI; everything they
+# DECIDE lives under src/pure/kotlin and is verified right here.
+echo "==> Compiling optical-camera + optical-render pure logic (+ Stage 4/6 tests)"
+kotlinc \
+  android/optical-camera/src/pure/kotlin/app/candela/camera/*.kt \
+  android/optical-render/src/pure/kotlin/app/candela/render/*.kt \
+  android/optical-camera/src/pure/test/kotlin/app/candela/camera/*.kt \
+  -include-runtime -d "$OUT/stage46-tests.jar" 2>&1 | grep -v '^warning: ' || true
+
 echo
 java -cp "$OUT/protocol-tests.jar" app.candela.protocol.GoldenTestsKt \
   "$REPO_ROOT/android/core-protocol/src/test/resources/golden"
@@ -48,9 +58,14 @@ java -cp "$OUT/vision-tests.jar" app.candela.vision.VisionTestsKt
 VISION=$?
 
 echo
-if [ $PROTO -eq 0 ] && [ $VISION -eq 0 ]; then
-  echo "VERIFICATION PASSED — protocol is wire-compatible, gates behave per audit."
+java -cp "$OUT/stage46-tests.jar" app.candela.camera.CameraLogicTestsKt
+STAGE46=$?
+
+echo
+if [ $PROTO -eq 0 ] && [ $VISION -eq 0 ] && [ $STAGE46 -eq 0 ]; then
+  echo "VERIFICATION PASSED — protocol wire-compatible, gates and camera/render"
+  echo "                     decision logic behave per audit."
   exit 0
 fi
-echo "VERIFICATION FAILED (protocol=$PROTO vision=$VISION)"
+echo "VERIFICATION FAILED (protocol=$PROTO vision=$VISION stage4/6=$STAGE46)"
 exit 1
