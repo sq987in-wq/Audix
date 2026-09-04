@@ -35,32 +35,10 @@ android {
 
     buildTypes {
         release {
-            // Off for the alpha: a symbolicated crash from a field test is worth
-            // more right now than a smaller APK.
             isMinifyEnabled = false
         }
     }
-}
 
-dependencies {
-    implementation(project(":core-protocol"))
-    implementation(project(":core-vision"))
-    implementation(project(":optical-camera"))
-    implementation(project(":optical-render"))
-    implementation(project(":platform"))
-
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.lifecycle.runtime)
-    implementation(libs.androidx.activity.compose)
-
-    implementation(platform(libs.compose.bom))
-    implementation(libs.compose.ui)
-    implementation(libs.compose.material3)
-
-    testImplementation(libs.junit)
-}
-
-android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -74,5 +52,28 @@ android {
 configurations.all {
     resolutionStrategy {
         preferProjectModules()
+        // Duplicate class conflict fix: align lifecycle and savedstate versions
+        force("androidx.savedstate:savedstate:1.2.1")
+        force("androidx.savedstate:savedstate-ktx:1.2.1")
+        force("androidx.lifecycle:lifecycle-viewmodel:2.8.6")
+        force("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
+        force("androidx.lifecycle:lifecycle-runtime:2.8.6")
+        force("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     }
+}
+
+dependencies {
+    implementation(project(":core-protocol"))
+    implementation(project(":core-vision"))
+    implementation(project(":optical-camera"))
+    implementation(project(":optical-render"))
+    implementation(project(":platform"))
+
+    implementation(platform(libs.compose.bom))
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+
+    testImplementation(libs.junit)
 }
