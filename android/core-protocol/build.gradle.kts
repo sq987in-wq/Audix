@@ -43,3 +43,10 @@ val goldenTest = tasks.register<JavaExec>("goldenTest") {
 }
 
 tasks.named("test") { dependsOn(goldenTest) }
+
+tasks.withType<ProcessResources> {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+tasks.withType<Copy> {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
