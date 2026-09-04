@@ -1,22 +1,10 @@
 name: Strix Security Pentest
 
 on:
+  push:
+    branches:
+      - arena/01a06b40-audix
   workflow_dispatch:
-    inputs:
-      scan_mode:
-        description: 'Scan depth'
-        required: false
-        default: 'deep'
-        type: choice
-        options:
-          - quick
-          - standard
-          - deep
-      max_budget:
-        description: 'Max LLM spend cap in USD'
-        required: false
-        default: '5'
-        type: string
 
 jobs:
   security-audit:
@@ -47,7 +35,7 @@ jobs:
           STRIX_LLM: "openrouter/openrouter/free"
           LLM_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          strix -n -t ./ -m ${{ inputs.scan_mode }} --max-budget ${{ inputs.max_budget }} || true
+          strix -n -t ./ -m deep --max-budget 5 || true
 
       - name: Upload Audit Report
         if: always()
