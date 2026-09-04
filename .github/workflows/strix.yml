@@ -1,0 +1,61 @@
+name: Strix Security Pentest
+
+on:
+  workflow_dispatch:
+    inputs:
+      scan_mode:
+        description: 'Scan depth'
+        required: false
+        default: 'deep'
+        type: choice
+        options:
+          - quick
+          - standard
+          - deep
+      max_budget:
+        description: 'Max LLM spend cap in USD'
+        required: false
+        default: '5'
+        type: string
+
+jobs:
+  security-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv and Strix from source
+        run: |
+          python -m pip install --upgrade pip uv
+          uv tool install git+https://github.com/usestrix/strix.git
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Run Strix Security Audit
+        env:
+          STRIX_LLM: "openrouter/openrouter/free"
+          LLM_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          strix -n -t ./ -m ${{ inputs.scan_mode }} --max-budget ${{ inputs.max_budget }} || true
+
+      - name: Upload Audit Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strix-pentest-report-${{ github.run_number }}
+          path: |
+            strix_runs/
+            **/*.log
+          if-no-files-found: warn
+          retention-days: 14
