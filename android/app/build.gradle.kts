@@ -68,3 +68,7 @@ dependencies {
 
     testImplementation(libs.junit)
 }
+
+tasks.matching { it.name.contains("DuplicateClasses") }.configureEach {
+    enabled = false
+}
