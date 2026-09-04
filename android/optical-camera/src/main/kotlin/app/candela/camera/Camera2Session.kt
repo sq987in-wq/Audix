@@ -12,6 +12,7 @@ import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.CaptureResult
 import android.hardware.camera2.TotalCaptureResult
 import android.hardware.camera2.params.MeteringRectangle
+import android.media.Image
 import android.media.ImageReader
 import android.os.Build
 import android.os.Handler
@@ -419,11 +420,16 @@ class Camera2Session(
      * DROP_OLDEST policy from PSR section 5.2, applied at the source.
      */
     private fun drainReader(ir: ImageReader) {
-        var image = try {
+        // acquireLatestImage() is a platform type (Image!) and genuinely returns
+        // null when no new frame is queued, so the nullable annotation is load
+        // bearing. IllegalStateException means the caller has not closed enough
+        // images -- treated as "no frame" rather than crashing the camera thread.
+        val image: Image? = try {
             ir.acquireLatestImage()
         } catch (_: IllegalStateException) {
             null
-        } ?: return
+        }
+        if (image == null) return
 
         try {
             val plane = image.planes[0]
@@ -444,8 +450,10 @@ class Camera2Session(
         } catch (e: Exception) {
             callbacks.onError("Frame processing failed", e)
         } finally {
+            // Closing is mandatory, not hygiene: the ImageReader has a fixed
+            // buffer count and leaking even one image permanently starves the
+            // pipeline. The local itself is dead here, so it is not reassigned.
             image.close()
-            image = null
         }
     }
 

@@ -166,6 +166,9 @@ class QrSurfaceView @JvmOverloads constructor(
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         surfaceReady = true
+        // Hand our Surface to the display controller: this is the plane whose
+        // cadence must be pinned to a fixed 60 Hz, not the decor view's.
+        SenderDisplayController.surfaceProvider = { holder.surface }
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -174,6 +177,7 @@ class QrSurfaceView @JvmOverloads constructor(
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         surfaceReady = false
+        SenderDisplayController.surfaceProvider = null
     }
 
     private fun SurfaceHolder.lockHardwareCanvasCompat(): Canvas? = try {

@@ -5,7 +5,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.provider.Settings
 import android.view.Display
-import android.view.View
+import android.view.Surface
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -42,23 +42,41 @@ object SenderDisplayController {
      * for 100 ms at a time, so LTPO would absolutely try.
      */
     fun pinRefreshRate(activity: Activity, hz: Float = 60f) {
-        val window = activity.window ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            window.decorView.rootSurfaceControl // touch to ensure surface exists
-            try {
-                window.decorView.setFrameRate(
-                    hz,
-                    View.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE,
-                )
-            } catch (_: Throwable) {
+            // setFrameRate is declared on Surface (API 30), NOT on View --
+            // View.setRequestedFrameRate exists only from API 35 and is a hint
+            // rather than a pin, so it is not a substitute. The surface we want
+            // is the QR plane's, supplied by QrSurfaceView once it exists.
+            val surface = surfaceProvider?.invoke()
+            if (surface != null && surface.isValid) {
+                surface.setFrameRate(hz, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE)
+                // Pinning the surface cadence does not stop the DISPLAY from
+                // switching modes underneath it, so still request the mode.
                 legacyPreferredMode(activity, hz)
+                return
             }
-        } else {
-            legacyPreferredMode(activity, hz)
         }
+        legacyPreferredMode(activity, hz)
     }
 
-    /** Pre-R fallback: pick the display mode closest to the target rate. */
+    /**
+     * Set by [QrSurfaceView] once its Surface exists.
+     *
+     * The QR plane is the surface whose cadence actually matters — pinning the
+     * decor view's surface would leave the SurfaceView free to be composited at
+     * whatever rate the compositor chooses. Nullable because the rate is pinned
+     * at session start, which may precede surfaceCreated.
+     */
+    @Volatile
+    var surfaceProvider: (() -> Surface?)? = null
+
+    /**
+     * Request the display mode closest to [hz].
+     *
+     * Not only a pre-R fallback: it is also applied ALONGSIDE setFrameRate on
+     * R+, because pinning a surface's cadence does not prevent the display
+     * itself from switching modes underneath it.
+     */
     private fun legacyPreferredMode(activity: Activity, hz: Float) {
         val window = activity.window ?: return
         @Suppress("DEPRECATION")
