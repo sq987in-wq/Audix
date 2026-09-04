@@ -1,0 +1,48 @@
+diff --git a/.github/workflows/android.yml b/.github/workflows/android.yml
+index ded08d2..621723e 100644
+--- a/.github/workflows/android.yml
++++ b/.github/workflows/android.yml
+@@ -77,6 +77,11 @@ jobs:
+ 
+       - name: Set up Gradle
+         uses: gradle/actions/setup-gradle@v4
++        with:
++          # Pinned. AGP 8.5.2 supports Gradle 8.7-8.x; an unpinned runner can
++          # float to Gradle 9, which AGP 8.5.2 rejects outright and which also
++          # changes Test-task defaults. Bump this and AGP together, never alone.
++          gradle-version: "8.9"
+ 
+       - name: Verify protocol + vision
+         working-directory: android
+@@ -163,6 +168,11 @@ jobs:
+ 
+       - name: Set up Gradle
+         uses: gradle/actions/setup-gradle@v4
++        with:
++          # Pinned. AGP 8.5.2 supports Gradle 8.7-8.x; an unpinned runner can
++          # float to Gradle 9, which AGP 8.5.2 rejects outright and which also
++          # changes Test-task defaults. Bump this and AGP together, never alone.
++          gradle-version: "8.9"
+ 
+       # Stage 4/6 Android layers compile even before the app module exists.
+       - name: Assemble library modules
+@@ -170,6 +180,19 @@ jobs:
+         working-directory: android
+         run: gradle --no-daemon :optical-camera:assembleDebug :optical-render:assembleDebug
+ 
++      # Prints which Lifecycle artifact each edge resolves to. If the duplicate
++      # ever returns, this is the evidence needed to fix it in one iteration
++      # instead of guessing: a healthy graph shows ONLY *-android artifacts on an
++      # Android runtime classpath, never a *-jvm alongside them.
++      - name: Lifecycle resolution trace
++        if: steps.probe.outputs.ready == 'true'
++        working-directory: android
++        continue-on-error: true
++        run: |
++          gradle --no-daemon :app:dependencyInsight \
++            --configuration debugRuntimeClasspath \
++            --dependency androidx.lifecycle:lifecycle-common || true
++
+       - name: Assemble debug APK
+         if: steps.probe.outputs.ready == 'true'
+         working-directory: android

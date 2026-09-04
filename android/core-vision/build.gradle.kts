@@ -32,6 +32,11 @@ val visionTest = tasks.register<JavaExec>("visionTest") {
 
 tasks.named("test") { dependsOn(visionTest) }
 
-tasks.withType<Test> {
-    failOnNoDiscoveredTests = false
+// See :core-protocol — assertions run through visionTest (JavaExec), so `test`
+// discovers no JUnit classes. Set reflectively: the property is Gradle 9-only.
+tasks.withType<Test>().configureEach {
+    runCatching {
+        javaClass.getMethod("setFailOnNoDiscoveredTests", Boolean::class.java)
+            .invoke(this, false)
+    }
 }

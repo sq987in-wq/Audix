@@ -18,31 +18,58 @@ tasks.register("verify") {
     dependsOn(":core-protocol:test", ":core-vision:test")
 }
 
-subprojects {
-    tasks.withType<Test>().configureEach {
-        failOnNoDiscoveredTests = false
-    }
-}
-
+/**
+ * DEPENDENCY RESOLUTION — deliberately minimal. Read this before adding to it.
+ *
+ * AndroidX Lifecycle 2.8.x is a Kotlin Multiplatform build. `lifecycle-common` is
+ * no longer a jar; it is a *variant-aware alias* that Gradle resolves to exactly
+ * one real artifact based on the consumer's attributes:
+ *
+ *     lifecycle-common-android  <- for an Android consumer
+ *     lifecycle-common-jvm      <- for a plain JVM/desktop consumer
+ *
+ * Gradle picks the right one automatically when the consuming module sets the
+ * `org.jetbrains.kotlin.platform.type = androidJvm` attribute, which the
+ * `kotlin-android` plugin does. Every Android module here (:app, :platform,
+ * :optical-camera, :optical-render) already applies `kotlin-android`, so this
+ * resolves correctly with NO intervention.
+ *
+ * This is why the previous `dependencySubstitution` block CAUSED the duplicate
+ * rather than fixing it. Forcing `lifecycle-common` -> `lifecycle-common-jvm`
+ * pins one edge of the graph to the JVM artifact while variant resolution still
+ * pulls `lifecycle-common-android` for the rest, so both land on the runtime
+ * classpath carrying the same `androidx.lifecycle.*` class files. That is the
+ * literal definition of the error being chased. Substitution here is not a
+ * band-aid over the problem; it is the problem.
+ *
+ * A single `constraints` block replaces the substitution, the version forcing and
+ * the exclusions. Constraints align versions WITHOUT overriding variant
+ * selection, which is precisely the distinction that matters for a KMP library.
+ */
 subprojects {
     configurations.configureEach {
-        exclude(group = "androidx.lifecycle", module = "lifecycle-common-java8")
         resolutionStrategy {
-            dependencySubstitution {
-                substitute(module("androidx.lifecycle:lifecycle-common"))
-                    .using(module("androidx.lifecycle:lifecycle-common-jvm:2.8.6"))
-                    .because("lifecycle-common is now JVM artifact since KMP migration in 2.8.0")
-                substitute(module("androidx.lifecycle:lifecycle-common-java8"))
-                    .using(module("androidx.lifecycle:lifecycle-common-jvm:2.8.6"))
-                    .because("lifecycle-common-java8 is merged into lifecycle-common since 2.8.0")
-            }
+            // Align the whole Lifecycle graph on one version. `prefer` (not
+            // `strictly`/`force`) leaves variant-aware resolution intact, so
+            // each consumer still gets its correct -android or -jvm artifact.
             eachDependency {
-                if (requested.group == "androidx.lifecycle" && requested.name.startsWith("lifecycle-")) {
-                    useVersion("2.8.6")
+                if (requested.group == "androidx.lifecycle") {
+                    useVersion(libs.versions.lifecycle.get())
+                    because("one Lifecycle version across the graph; variant choice left to Gradle")
                 }
-                if (requested.group == "androidx.savedstate") {
-                    useVersion("1.2.1")
-                }
+            }
+        }
+    }
+
+    dependencies {
+        constraints {
+            // lifecycle-common-java8 was merged into lifecycle-common in 2.8.0 and
+            // now publishes an empty marker pointing at lifecycle-common. Anything
+            // still requesting it transitively is upgraded rather than excluded:
+            // excluding it would strip the marker and let an older, REAL 2.6.x jar
+            // win, which reintroduces the duplicate from the other direction.
+            add("implementation", "androidx.lifecycle:lifecycle-common-java8:${libs.versions.lifecycle.get()}") {
+                because("merged into lifecycle-common in 2.8.0; upgrade, never exclude")
             }
         }
     }

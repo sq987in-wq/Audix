@@ -44,13 +44,19 @@ val goldenTest = tasks.register<JavaExec>("goldenTest") {
 
 tasks.named("test") { dependsOn(goldenTest) }
 
-tasks.withType<ProcessResources> {
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}
-tasks.withType<Copy> {
+// The golden vectors are copied into the test runtime; two source roots can
+// legitimately contribute the same resource path. Keep the first.
+tasks.withType<Copy>().configureEach {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+// The real assertions run via the goldenTest JavaExec below, not JUnit, so the
+// `test` task legitimately discovers zero test classes. Gradle 9 fails the build
+// on that by default; Gradle 8 has no such property and errors on the setter, so
+// it is set reflectively and skipped when absent.
 tasks.withType<Test>().configureEach {
-    failOnNoDiscoveredTests = false
+    runCatching {
+        javaClass.getMethod("setFailOnNoDiscoveredTests", Boolean::class.java)
+            .invoke(this, false)
+    }
 }

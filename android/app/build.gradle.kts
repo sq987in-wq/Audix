@@ -35,22 +35,22 @@ android {
 
     buildTypes {
         release {
+            // Off for the alpha: a symbolicated crash from a field test is worth
+            // more right now than a smaller APK.
             isMinifyEnabled = false
         }
     }
 
     packaging {
         resources {
+            // Licence/metadata collisions only. NOT a duplicate-class workaround:
+            // this block cannot and must not influence classpath resolution.
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/DEPENDENCIES"
             excludes += "META-INF/LICENSE*"
             excludes += "META-INF/NOTICE*"
         }
     }
-}
-
-configurations.configureEach {
-    exclude(group = "androidx.lifecycle", module = "lifecycle-common-java8")
 }
 
 dependencies {
@@ -60,21 +60,20 @@ dependencies {
     implementation(project(":optical-render"))
     implementation(project(":platform"))
 
+    // BOM first so the Compose artifacts below resolve without explicit versions.
     implementation(platform(libs.compose.bom))
+
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime)
+
+    // Required by ReceiveViewModel (AndroidViewModel, viewModelScope). This was
+    // previously absent and only worked by accident as a transitive of
+    // activity-compose — an implicit edge that would break on any BOM bump.
+    implementation(libs.androidx.lifecycle.viewmodel)
+
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)
 
     testImplementation(libs.junit)
-}
-
-tasks.matching { it.name.contains("DuplicateClasses") }.configureEach {
-    enabled = false
-}
-
-afterEvaluate {
-    tasks.matching { it.name.contains("DuplicateClasses") }.configureEach {
-        actions.clear()
-    }
 }
