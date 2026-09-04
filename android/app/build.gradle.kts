@@ -50,15 +50,18 @@ android {
 }
 
 configurations.all {
+    // lifecycle-common-java8 is merged into lifecycle-common in 2.8+
+    exclude(group = "androidx.lifecycle", module = "lifecycle-common-java8")
+
     resolutionStrategy {
         preferProjectModules()
-        // Duplicate class conflict fix: align lifecycle and savedstate versions
         force("androidx.savedstate:savedstate:1.2.1")
         force("androidx.savedstate:savedstate-ktx:1.2.1")
-        force("androidx.lifecycle:lifecycle-viewmodel:2.8.6")
-        force("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
+        force("androidx.lifecycle:lifecycle-common:2.8.6")
         force("androidx.lifecycle:lifecycle-runtime:2.8.6")
         force("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+        force("androidx.lifecycle:lifecycle-viewmodel:2.8.6")
+        force("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.6")
     }
 }
 
