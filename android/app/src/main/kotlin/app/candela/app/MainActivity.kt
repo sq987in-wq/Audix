@@ -2,93 +2,177 @@ package app.candela.app
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
-import android.view.SurfaceHolder
-import android.view.SurfaceView
 import androidx.core.content.ContextCompat
 import app.candela.platform.SessionWakeLock
 import app.candela.platform.ThermalMonitor
+import app.candela.protocol.SessionState
 
 /**
- * Single activity. Owns exactly three things: the camera permission, the screen
- * wake lock, and the Surface the preview draws into.
+ * Single activity hosting both roles.
  *
- * Everything else is either Compose (the shell) or the ViewModel (the domain
- * adapter). In particular this class makes no decision about whether data may
- * flow — that lives in ReceiveSession/SasGate, where it is unit-testable.
+ * Owns exactly four things: role navigation, the camera permission, the screen
+ * wake lock, and the Surfaces. Every transfer rule lives in SendSession /
+ * ReceiveSession, which are pure and unit-tested.
  */
 class MainActivity : ComponentActivity() {
 
-    private val vm: ReceiveViewModel by viewModels()
-    private var camera: CameraController? = null
+    private enum class Route { HOME, SEND, RECEIVE }
+
+    private val receiveVm: ReceiveViewModel by viewModels()
+    private val sendVm: SendViewModel by viewModels()
+
+    private var camera: CameraBinding? = null
     private lateinit var thermal: ThermalMonitor
     private lateinit var wakeLock: SessionWakeLock
 
+    private var route by mutableStateOf(Route.HOME)
+    private var hasCamera by mutableStateOf(false)
+
     private val requestCamera = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
-    ) { granted -> hasCamera = granted }
+    ) { granted ->
+        hasCamera = granted
+        // Only start the camera once the user has actually granted it. Opening
+        // on a denied permission throws SecurityException deep in Camera2 and
+        // surfaces as an unexplained black preview.
+        if (granted && route == Route.RECEIVE) startReceiving()
+    }
 
-    private var hasCamera by mutableStateOf(false)
+    private val pickFile = registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? -> uri?.let { sendVm.loadFile(it) } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // A transfer takes tens of seconds of the user holding still and NOT
-        // touching the screen. The default screen timeout would abort it.
+        // A transfer is tens of seconds of holding still without touching the
+        // screen; the default timeout would abort it.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         thermal = ThermalMonitor(this)
         wakeLock = SessionWakeLock(this)
 
-        // The governor is started before any capture begins, and seeds itself
-        // from the CURRENT thermal status rather than waiting for an edge — a
-        // session begun on an already-warm device must not run at full power
-        // until the status happens to move.
-        if (thermal.isSupported) {
-            thermal.start(ContextCompat.getMainExecutor(this), vm::onThermalBudget)
-        }
-
         hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
-        if (!hasCamera) requestCamera.launch(Manifest.permission.CAMERA)
+
+        if (thermal.isSupported) {
+            thermal.start(ContextCompat.getMainExecutor(this)) { budget ->
+                receiveVm.onThermalBudget(budget)
+                sendVm.onThermalBudget(budget)
+            }
+        }
 
         setContent {
-            val ui by vm.ui.collectAsState()
-            CandelaReceiveShell(
-                ui = ui,
-                onStart = {
-                    // Session-scoped and bounded by a timeout — see SessionWakeLock.
-                    if (hasCamera) wakeLock.acquire()
-                    if (hasCamera) vm.startCalibration()
-                    else requestCamera.launch(Manifest.permission.CAMERA)
-                },
-                onConfirmSas = vm::confirmSasMatch,
-                onReportMismatch = vm::reportSasMismatch,
-                onAbort = vm::abort,
-                cameraPreview = { modifier -> CameraSurface(modifier) },
-            )
+            val rxUi by receiveVm.ui.collectAsState()
+            val txUi by sendVm.ui.collectAsState()
+
+            when (route) {
+                Route.HOME -> HomeScreen(
+                    onSend = {
+                        route = Route.SEND
+                        wakeLock.acquire()
+                        pickFile.launch(arrayOf("*/*"))
+                    },
+                    onReceive = {
+                        route = Route.RECEIVE
+                        wakeLock.acquire()
+                        if (hasCamera) startReceiving()
+                        else requestCamera.launch(Manifest.permission.CAMERA)
+                    },
+                )
+
+                Route.SEND -> SendFlow(
+                    ui = txUi,
+                    vm = sendVm,
+                    onPickFile = { pickFile.launch(arrayOf("*/*")) },
+                    onConfirmSas = sendVm::confirmSasMatch,
+                    onReportMismatch = sendVm::reportSasMismatch,
+                    onAbort = {
+                        sendVm.abort()
+                        goHome()
+                    },
+                    onDone = {
+                        sendVm.reset()
+                        goHome()
+                    },
+                )
+
+                Route.RECEIVE -> CandelaReceiveShell(
+                    ui = rxUi,
+                    hasCameraPermission = hasCamera,
+                    onStart = {
+                        if (hasCamera) startReceiving()
+                        else requestCamera.launch(Manifest.permission.CAMERA)
+                    },
+                    onGrantPermission = {
+                        requestCamera.launch(Manifest.permission.CAMERA)
+                    },
+                    onConfirmSas = receiveVm::confirmSasMatch,
+                    onReportMismatch = receiveVm::reportSasMismatch,
+                    onAbort = {
+                        receiveVm.abort()
+                        goHome()
+                    },
+                    cameraPreview = { modifier -> CameraSurface(modifier) },
+                )
+            }
         }
     }
 
+    private fun goHome() {
+        stopReceiving()
+        wakeLock.release()
+        route = Route.HOME
+    }
+
     /**
-     * The preview is a raw SurfaceView, not a Compose canvas. Camera frames must
-     * never travel through recomposition (audit kill #5); AndroidView here is a
-     * one-time embed, and the Surface is written by the camera HAL directly.
+     * Create the binding and open the device.
+     *
+     * Order does not matter here: Camera2Session defers capture-session
+     * configuration until both the CameraDevice and the preview Surface exist.
      */
-    @androidx.compose.runtime.Composable
+    private fun startReceiving() {
+        if (!hasCamera) return
+        if (camera == null) {
+            camera = CameraBinding(this, receiveVm) { block ->
+                runOnUiThread(block)
+            }
+        }
+        if (receiveVm.ui.value.sessionState == SessionState.IDLE) {
+            receiveVm.startCalibration()
+        }
+        camera?.open()
+    }
+
+    private fun stopReceiving() {
+        camera?.close()
+        camera = null
+    }
+
+    /**
+     * The preview is a raw SurfaceView, not a Compose canvas: camera frames must
+     * never travel through recomposition (audit kill #5). AndroidView is a
+     * one-time embed and the HAL writes the Surface directly.
+     */
+    @Composable
     private fun CameraSurface(modifier: Modifier) {
         Box(modifier.fillMaxSize()) {
             AndroidView(
@@ -105,7 +189,11 @@ class MainActivity : ComponentActivity() {
                                 f: Int,
                                 w: Int,
                                 ht: Int,
-                            ) = Unit
+                            ) {
+                                // Re-attach: a size change recreates the buffers,
+                                // and the session must target the current surface.
+                                camera?.attachPreview(h.surface)
+                            }
 
                             override fun surfaceDestroyed(h: SurfaceHolder) = Unit
                         })
@@ -115,27 +203,24 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        // Reopen when returning to the receiver: onStop released the device.
+        if (route == Route.RECEIVE && hasCamera && camera == null) startReceiving()
+    }
+
     override fun onStop() {
         super.onStop()
-        // Release the wakelock and stop listening the moment we are not visible.
-        // "No background scanning, ever" (audit section 3).
+        // Release everything the moment we are not visible. Holding the camera
+        // across a background transition is the classic way to be unable to
+        // reopen it, and "no background scanning, ever" is an audit rule.
         wakeLock.release()
         if (thermal.isSupported) thermal.stop()
-        // Release the camera the moment we are not visible. Holding it across a
-        // background transition is the classic way to end up unable to reopen it.
-        camera?.close()
-        camera = null
+        stopReceiving()
     }
 }
 
-/**
- * Seam between the activity and :optical-camera.
- *
- * Kept as an interface so the shell and ViewModel have no compile-time
- * dependency on Camera2. The concrete binding is wired in Stage 9 alongside
- * on-device bring-up; until then the preview surface simply stays dark, which
- * is honest rather than faked.
- */
+/** Seam so the shell and ViewModel keep no compile-time dependency on Camera2. */
 interface CameraController {
     fun attachPreview(surface: android.view.Surface)
     fun close()

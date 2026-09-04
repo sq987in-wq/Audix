@@ -68,6 +68,16 @@ class Camera2Session(
 
         fun onLockStateChanged(phase: LockPolicy.Phase, plan: ExposurePlan.Plan?)
         fun onError(message: String, cause: Throwable?)
+
+        /**
+         * The repeating request is live and the sensor is delivering.
+         *
+         * Reported explicitly because "preview is black" is otherwise
+         * indistinguishable from "session never configured", "request never
+         * looped" and "frames arriving but the scene is dark". The UI shows a
+         * real diagnostic instead of a black rectangle.
+         */
+        fun onStreaming() {}
     }
 
     private val cameraManager =
@@ -85,6 +95,10 @@ class Camera2Session(
 
     val lockPolicy = LockPolicy()
     private val closing = AtomicBoolean(false)
+
+    /** Set on the first completed capture; drives Callbacks.onStreaming. */
+    @Volatile
+    private var streaming = false
 
     /**
      * Reused luma scratch. ImageReader hands back a direct ByteBuffer whose
@@ -149,6 +163,8 @@ class Camera2Session(
             thread?.quitSafely()
             thread = null
             handler = null
+            previewSurface = null
+            streaming = false
             lockPolicy.reset()
         }
     }
@@ -190,23 +206,73 @@ class Camera2Session(
         }
     }
 
+    /**
+     * Configure the capture session.
+     *
+     * THE ORDERING BUG THIS GUARDS AGAINST. A capture session's output set is
+     * fixed at configuration time; a Surface added later is simply not a target,
+     * and the preview stays black forever with no error anywhere. But the device
+     * opens asynchronously and the SurfaceView's Surface is created
+     * asynchronously, so whichever loses the race used to decide whether the
+     * user ever saw a preview.
+     *
+     * So configuration is deferred until BOTH are present: onOpened calls this,
+     * and so does attachPreview. Whichever arrives second does the work.
+     */
     private fun createSession(camera: CameraDevice) {
-        val surfaces = listOfNotNull(reader?.surface, previewSurface)
-        @Suppress("DEPRECATION")
-        camera.createCaptureSession(surfaces, object : CameraCaptureSession.StateCallback() {
-            override fun onConfigured(s: CameraCaptureSession) {
-                session = s
-                startPreview()
-            }
+        if (closing.get()) return
+        val preview = previewSurface
+        if (preview == null) {
+            // Device is ready, Surface is not. attachPreview will re-enter.
+            return
+        }
+        if (!preview.isValid) {
+            callbacks.onError("Preview surface is not valid", null)
+            return
+        }
+        if (session != null) return // already configured for this surface
 
-            override fun onConfigureFailed(s: CameraCaptureSession) {
-                callbacks.onError("Capture session configuration failed", null)
-            }
-        }, handler)
+        val surfaces = listOfNotNull(reader?.surface, preview)
+        try {
+            @Suppress("DEPRECATION")
+            camera.createCaptureSession(surfaces, object : CameraCaptureSession.StateCallback() {
+                override fun onConfigured(s: CameraCaptureSession) {
+                    if (closing.get()) {
+                        s.close()
+                        return
+                    }
+                    session = s
+                    startPreview()
+                }
+
+                override fun onConfigureFailed(s: CameraCaptureSession) {
+                    callbacks.onError("Capture session configuration failed", null)
+                }
+            }, handler)
+        } catch (e: Exception) {
+            callbacks.onError("Failed to create capture session", e)
+        }
     }
 
+    /**
+     * Hand the preview Surface to the session.
+     *
+     * Safe to call before or after [open]; it triggers configuration if the
+     * device is already open, and is a no-op if the surface is unchanged.
+     */
     fun attachPreview(surface: Surface) {
+        if (previewSurface == surface && session != null) return
         previewSurface = surface
+        val cam = device ?: return // open() will configure once onOpened fires
+        // The surface changed after a session existed (e.g. the view was
+        // recreated): tear the old session down so the new target takes effect.
+        session?.let {
+            runCatching { it.stopRepeating() }
+            runCatching { it.close() }
+            session = null
+        }
+        val h = handler
+        if (h != null) h.post { createSession(cam) } else createSession(cam)
     }
 
     // ------------------------------------------------------------- request build
@@ -247,12 +313,21 @@ class Camera2Session(
     }
 
     private fun startPreview() {
-        val b = baseRequest() ?: return
+        val b = baseRequest() ?: run {
+            callbacks.onError("Could not build preview request", null)
+            return
+        }
         b.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
         b.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE)
         b.set(CaptureRequest.CONTROL_AE_LOCK, false)
         b.set(CaptureRequest.CONTROL_AWB_LOCK, false)
-        session?.setRepeatingRequest(b.build(), captureCallback, handler)
+        try {
+            session?.setRepeatingRequest(b.build(), captureCallback, handler)
+        } catch (e: Exception) {
+            // Without this the loop silently never starts and the preview is
+            // black with nothing in logcat pointing at the cause.
+            callbacks.onError("Failed to start preview stream", e)
+        }
     }
 
     // ------------------------------------------------------------ the C1 freeze
@@ -380,6 +455,10 @@ class Camera2Session(
             result: TotalCaptureResult,
         ) {
             if (closing.get()) return
+            if (!streaming) {
+                streaming = true
+                callbacks.onStreaming()
+            }
             val afState = result.get(CaptureResult.CONTROL_AF_STATE)
             val lensDistance = result.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f
 

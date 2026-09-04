@@ -71,12 +71,16 @@ java -cp "$OUT/stage46-tests.jar" app.candela.render.ThermalTestsKt
 STAGE7=$?
 
 echo
+java -cp "$OUT/protocol-tests.jar" app.candela.protocol.SendSessionTestsKt
+SENDER=$?
+
+echo
 if [ $PROTO -eq 0 ] && [ $VISION -eq 0 ] && [ $STAGE46 -eq 0 ] && [ $STAGE8 -eq 0 ] \
-   && [ $STAGE7 -eq 0 ]; then
+   && [ $STAGE7 -eq 0 ] && [ $SENDER -eq 0 ]; then
   echo "VERIFICATION PASSED — protocol wire-compatible; vision gates, camera/render,"
   echo "                     thermal governor and SAS/export logic behave per audit."
   exit 0
 fi
 echo "VERIFICATION FAILED (protocol=$PROTO vision=$VISION stage4/6=$STAGE46 \
-stage8=$STAGE8 stage7=$STAGE7)"
+stage8=$STAGE8 stage7=$STAGE7 sender=$SENDER)"
 exit 1

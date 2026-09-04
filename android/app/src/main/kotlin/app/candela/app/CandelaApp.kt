@@ -41,13 +41,21 @@ import app.candela.protocol.SessionState
 @Composable
 fun CandelaReceiveShell(
     ui: ReceiveViewModel.UiState,
+    hasCameraPermission: Boolean,
     onStart: () -> Unit,
+    onGrantPermission: () -> Unit,
     onConfirmSas: () -> Unit,
     onReportMismatch: () -> Unit,
     onAbort: () -> Unit,
     cameraPreview: @Composable (Modifier) -> Unit,
 ) {
     Box(Modifier.fillMaxSize().background(Color(0xFF0F1115))) {
+        // Permission is checked before anything else: without it Camera2 throws
+        // deep in the stack and the user sees only a black rectangle.
+        if (!hasCameraPermission) {
+            CameraPermissionScreen(onGrantPermission)
+            return@Box
+        }
         when (ui.sessionState) {
             SessionState.IDLE -> IdleScreen(onStart)
 
@@ -129,6 +137,11 @@ private fun CalibratingScreen(
 ) {
     Box(Modifier.fillMaxSize()) {
         cameraPreview(Modifier.fillMaxSize())
+        // A black preview is ambiguous on its own, so say which of the three
+        // possible causes is actually happening.
+        if (!ui.cameraStreaming || ui.cameraError != null) {
+            CameraStatusOverlay(ui.cameraError)
+        }
         CornerGuideOverlay(
             ui.roiLeft, ui.roiTop, ui.roiWidth, ui.roiHeight,
             locked = ui.coach.gatePass,
@@ -169,6 +182,11 @@ private fun ReceivingScreen(
 ) {
     Box(Modifier.fillMaxSize()) {
         cameraPreview(Modifier.fillMaxSize())
+        // A black preview is ambiguous on its own, so say which of the three
+        // possible causes is actually happening.
+        if (!ui.cameraStreaming || ui.cameraError != null) {
+            CameraStatusOverlay(ui.cameraError)
+        }
         CornerGuideOverlay(
             ui.roiLeft, ui.roiTop, ui.roiWidth, ui.roiHeight,
             locked = ui.coach.gatePass,
@@ -261,5 +279,58 @@ private fun CenteredMessage(title: String, body: String) {
         Text(title, color = Color(0xFFE8EAF0), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(10.dp))
         Text(body, color = Color(0xFF9AA3B2), fontSize = 14.sp, textAlign = TextAlign.Center)
+    }
+}
+
+/**
+ * Shown until the sensor delivers its first frame, or when Camera2 reports an
+ * error. Without this the user cannot tell "starting up" from "camera failed"
+ * from "the scene is genuinely dark" — all three look identical.
+ */
+@Composable
+private fun CameraStatusOverlay(error: String?) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                if (error != null) "Camera problem" else "Starting camera…",
+                color = if (error != null) Color(0xFFFF6B6B) else Color.White,
+                fontSize = 18.sp,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                error ?: "Waiting for the first frame from the sensor.",
+                color = Color(0xFF9AA3B2),
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 32.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The receiver is useless without CAMERA, so ask explicitly and explain why.
+ * Silently showing a dead viewfinder — the previous behaviour — is the worst
+ * option: the user grants the permission in Settings and nothing changes.
+ */
+@Composable
+private fun CameraPermissionScreen(onGrant: () -> Unit) {
+    Column(
+        Modifier.fillMaxSize().padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("Camera access needed", color = Color.White, fontSize = 22.sp)
+        Spacer(Modifier.height(12.dp))
+        Text(
+            "Receiving works by reading QR codes off the other device's screen, " +
+                "so the camera is the only way in. Nothing is uploaded — the app " +
+                "has no network permission at all.",
+            color = Color(0xFF9AA3B2),
+            fontSize = 15.sp,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = onGrant) { Text("Allow camera") }
     }
 }

@@ -52,6 +52,9 @@ class ReceiveViewModel(app: Application) : AndroidViewModel(app) {
         val thermalLevel: ThermalLevel = ThermalLevel.NONE,
         val thermalMessage: String? = null,
         val thermallyPaused: Boolean = false,
+        /** False until the sensor actually delivers a frame. */
+        val cameraStreaming: Boolean = false,
+        val cameraError: String? = null,
     )
 
     private val session = ReceiveSession()
@@ -67,6 +70,24 @@ class ReceiveViewModel(app: Application) : AndroidViewModel(app) {
         private set
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
+
+    /**
+     * The capture loop is live. Surfaced in the UI because "preview is black"
+     * must be distinguishable from "camera never started" — the previous build
+     * showed an indistinguishable black rectangle in both cases.
+     */
+    fun onCameraStreaming() {
+        _ui.value = _ui.value.copy(cameraStreaming = true, cameraError = null)
+    }
+
+    fun onCameraError(message: String, detail: String?) {
+        _ui.value = _ui.value.copy(
+            cameraError = if (detail != null) "$message: $detail" else message,
+        )
+    }
+
+    /** Key from the signed header, once received; null before that. */
+    fun headerPublicKey(): ByteArray? = session.header?.publicKey
 
     fun startCalibration() {
         session.startCalibration()
