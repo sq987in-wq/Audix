@@ -72,3 +72,9 @@ dependencies {
 tasks.matching { it.name.contains("DuplicateClasses") }.configureEach {
     enabled = false
 }
+
+afterEvaluate {
+    tasks.matching { it.name.contains("DuplicateClasses") }.configureEach {
+        actions.clear()
+    }
+}
