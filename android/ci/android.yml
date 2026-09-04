@@ -98,8 +98,15 @@ jobs:
             android/optical-camera/src/pure/kotlin/app/candela/camera/*.kt \
             android/optical-render/src/pure/kotlin/app/candela/render/*.kt \
             android/optical-camera/src/pure/test/kotlin/app/candela/camera/*.kt \
+            android/optical-render/src/pure/test/kotlin/app/candela/render/*.kt \
             -include-runtime -d stage46.jar
           java -cp stage46.jar app.candela.camera.CameraLogicTestsKt
+
+      # Stage 7: the thermal governor ladder. The ratchet invariant (no lever
+      # permits more work at a hotter level) is checked across every ordered pair
+      # of levels, which is the property a plausible one-branch edit breaks.
+      - name: Verify Stage 7 thermal governor
+        run: java -cp stage46.jar app.candela.render.ThermalTestsKt
 
       # Stage 8: the blocking SAS gate and the SHA-256 export gate. These are the
       # security-relevant invariants ("no DATA frame is ingested before BOTH

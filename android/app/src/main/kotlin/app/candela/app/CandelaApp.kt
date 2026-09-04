@@ -75,10 +75,14 @@ fun CandelaReceiveShell(
 
             SessionState.ABORTED -> AbortedScreen(ui, onStart)
 
+            // The governor's own wording, not a generic string: it names the
+            // cause and promises resume, because an unexplained stall makes the
+            // user move the phone and lose the calibration pose.
             SessionState.PAUSED -> CenteredMessage(
-                "Paused",
-                "The device is warm, so the session paused to cool down. Progress is kept " +
-                    "and the transfer will resume.",
+                "Paused to cool down",
+                ui.thermalMessage
+                    ?: "The device is warm, so the session paused. Progress is kept " +
+                    "and the transfer resumes automatically. Hold position.",
             )
         }
     }

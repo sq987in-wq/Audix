@@ -188,6 +188,40 @@ Every capability is read from `CameraCharacteristics` first, with a documented d
 
 `PowerManager.addThermalStatusListener`: `LIGHT` → sender 12→8 fps, receiver ROI downsample ×2; `MODERATE` → duty-cycle 8 s work / 2 s sleep + raise gate thresholds; `SEVERE` → pause with a user-visible notice; `CRITICAL` → abort and persist resume state. Session-scoped partial wakelock with timeout; no background scanning, ever.
 
+**Stage 7 as built.** The governor is a pure function of thermal status
+(`ThermalGovernor.budgetFor`), with the only mutable state — the current level
+and pending-cooldown timestamp — isolated in `ThermalTracker` and driven by an
+explicit clock. `:platform`'s `ThermalMonitor` does nothing but convert an `Int`
+and forward it; the rule is that no Android file may branch on a thermal value,
+because nothing in an Android file can be tested here.
+
+Two behaviours are worth calling out because they are not obvious from the audit
+text:
+
+*Asymmetric hysteresis.* `PowerManager` reports a transition the instant a sensor
+crosses a threshold, and those thresholds flap — a device sitting on a boundary
+oscillates every few seconds. Escalation is therefore immediate and
+de-escalation requires 20 s of sustained cooler readings, stepping down one rung
+at a time. The test drives 40 boundary flips over 20 s and asserts **zero**
+re-plans. Reacting symmetrically would restore full power into a chassis that is
+still hot, which re-triggers mitigation harder and produces a sawtooth.
+
+*The ratchet.* Work is monotonically non-increasing across every lever — rate,
+ROI decimation, gate thresholds, duty fraction — asserted over every **ordered
+pair** of levels, not just adjacent ones. Measured work index: NONE 12.00,
+LIGHT 2.00, MODERATE 1.20, SEVERE 0.00, CRITICAL 0.00. This is precisely the
+invariant a plausible-looking edit to one branch quietly breaks.
+
+Levers engage cheapest-harm-first: slow (12→8 sym/s) → decimate ROI ×2 →
+duty-cycle 8 s/2 s and raise gate thresholds ×1.25 → pause → abort with resume
+state. SEVERE and CRITICAL drive the domain machine via `THERMAL_PAUSE`/`ABORT`
+rather than merely slowing the UI, because a session left nominally `RECEIVING`
+keeps the camera and decoder running, which is most of the draw being shed.
+Threshold scaling is clamped at 0.95 normalised contrast so throttling can never
+degrade into refuse-everything-forever. Unknown or future `THERMAL_STATUS_*`
+values (EMERGENCY, SHUTDOWN, anything unrecognised) clamp to CRITICAL: failing
+safe costs a resumable abort, failing open costs a process kill mid-transfer.
+
 ### Stage 8 — Compose shell, alignment coach, SAS gate
 
 - Coach HUD: live blur score, contrast ratio, motion state, "hold still / frame now" hint, corner-guide overlay tracking the QR rect — the audit calls the human-in-the-loop coach *the product*, so it is a first-class screen, not a debug overlay.
@@ -235,7 +269,7 @@ Resume/multi-file via session id + manifest; OEM matrix (Pixel / Samsung / OnePl
 | 4 Camera2 C1 freeze | **DONE** | decision logic: sandbox (122 assertions). Camera2 call layer: CI compile + on-device exit test |
 | 5 gated ROI decode | **DONE** (pipeline) | `DecodePipeline` wires gate→ROI→ZXing; throughput numbers need a device |
 | 6 sender render path | **DONE** | pacing logic: sandbox. SurfaceView layer: CI compile + on-device |
-| 7 thermal governor | partial | `HoldTimePlan.derate` ladder done in sandbox; `PowerManager` listener pending |
+| 7 thermal governor | **DONE** (logic) | ladder + hysteresis: sandbox (144 assertions). `PowerManager` listener: CI compile + on-device |
 | 8 Compose shell / coach / SAS gate | **DONE** (logic) | gate logic: sandbox (65 assertions). Compose/MediaStore layer: CI compile + on-device |
 | 9 hardening, device matrix | not started | |
 
@@ -248,7 +282,15 @@ not cosmetic: the bugs in a camera pipeline live in the decisions, not the API
 calls, and this split is what made them testable here. It already paid for
 itself — see the hold-time default bug in the Stage 6 notes below.
 
-**Nothing under `/src` has been or will be modified.** Branch `android-native` exists; new code lands under `android/` and `tools/`.
+**Nothing under `/src` has been or will be modified.** New code lands under
+`android/` and `tools/` only; CI fails the build on any `/src` diff.
+
+**Branch naming.** The requested branch name was `android-native`. This work is
+on `arena/01a06b40-audix` instead — the session is pinned to that branch and work
+elsewhere is not tracked. Renaming is a one-line operation whenever you want it.
+
+**Total verification: 469 assertions, 0 failures** via `./android/verify-local.sh`
+(protocol 114 + vision 24 + camera/render 122 + SAS/export 65 + thermal 144).
 
 ### Stage 4 / Stage 6 implementation notes
 

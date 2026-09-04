@@ -10,6 +10,13 @@
     -->
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!--
+      Session-scoped partial wakelock, always acquired with a timeout. A transfer
+      is tens of seconds of the user holding still; the CPU sleeping mid-fountain
+      would strand the session. See SessionWakeLock for the bound.
+    -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
     <uses-feature android:name="android.hardware.camera.any" android:required="true" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 

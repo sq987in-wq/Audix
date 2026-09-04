@@ -19,6 +19,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.core.content.ContextCompat
+import app.candela.platform.SessionWakeLock
+import app.candela.platform.ThermalMonitor
 
 /**
  * Single activity. Owns exactly three things: the camera permission, the screen
@@ -32,6 +34,8 @@ class MainActivity : ComponentActivity() {
 
     private val vm: ReceiveViewModel by viewModels()
     private var camera: CameraController? = null
+    private lateinit var thermal: ThermalMonitor
+    private lateinit var wakeLock: SessionWakeLock
 
     private val requestCamera = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -46,6 +50,17 @@ class MainActivity : ComponentActivity() {
         // touching the screen. The default screen timeout would abort it.
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
+        thermal = ThermalMonitor(this)
+        wakeLock = SessionWakeLock(this)
+
+        // The governor is started before any capture begins, and seeds itself
+        // from the CURRENT thermal status rather than waiting for an edge — a
+        // session begun on an already-warm device must not run at full power
+        // until the status happens to move.
+        if (thermal.isSupported) {
+            thermal.start(ContextCompat.getMainExecutor(this), vm::onThermalBudget)
+        }
+
         hasCamera = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
             PackageManager.PERMISSION_GRANTED
         if (!hasCamera) requestCamera.launch(Manifest.permission.CAMERA)
@@ -55,6 +70,8 @@ class MainActivity : ComponentActivity() {
             CandelaReceiveShell(
                 ui = ui,
                 onStart = {
+                    // Session-scoped and bounded by a timeout — see SessionWakeLock.
+                    if (hasCamera) wakeLock.acquire()
                     if (hasCamera) vm.startCalibration()
                     else requestCamera.launch(Manifest.permission.CAMERA)
                 },
@@ -100,6 +117,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        // Release the wakelock and stop listening the moment we are not visible.
+        // "No background scanning, ever" (audit section 3).
+        wakeLock.release()
+        if (thermal.isSupported) thermal.stop()
         // Release the camera the moment we are not visible. Holding it across a
         // background transition is the classic way to end up unable to reopen it.
         camera?.close()

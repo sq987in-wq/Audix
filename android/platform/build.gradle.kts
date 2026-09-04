@@ -36,6 +36,8 @@ android {
 
 dependencies {
     implementation(project(":core-protocol"))
+    // ThermalGovernor/ThermalTracker: the pure ladder this module forwards into.
+    implementation(project(":optical-render"))
     implementation(libs.androidx.core.ktx)
     testImplementation(libs.junit)
 }
