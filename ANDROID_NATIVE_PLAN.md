@@ -142,7 +142,7 @@ Port `/src/vision/gates.ts` to `core-vision`, operating on a raw **luma `ByteArr
 - Gradle wrapper 8.x, AGP 8.x, Kotlin 2.x, `compileSdk 35`, `minSdk 26`, JVM target 17, version catalog.
 - Dependencies: `com.google.zxing:core` **only** for decoding (R4); Compose BOM; `androidx.lifecycle`; **no** `play-services-*`, **no** ML Kit, **no** CameraX for the hot path (CameraX cannot express AE/AF freeze the way C1 requires — Camera2 direct).
 - Manifest: `CAMERA` permission, **no** `INTERNET` permission at all — the strongest possible proof of the offline claim.
-- CI workflow `.github/workflows/android.yml`: JDK 17 + `android-actions/setup-android`, `./gradlew :core-protocol:test :core-vision:test assembleDebug`, upload APK.
+- CI workflow: JDK 17 + `android-actions/setup-android`, `gradle verify` then `:app:assembleDebug`, upload APK. **Written and parked at `android/ci/android.yml`** — the pushing GitHub App lacks the `workflows` permission, so it needs one manual move into `.github/workflows/`; see `android/ci/README.md`.
 
 **Exit test:** CI green; `:core-protocol:test` passes in CI with the same golden vectors.
 

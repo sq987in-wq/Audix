@@ -1,0 +1,26 @@
+[versions]
+kotlin = "2.0.21"
+agp = "8.5.2"
+junit = "4.13.2"
+# ZXing core only — no ML Kit, no Play Services (audit C4 / section 6.2).
+zxing = "3.5.3"
+composeBom = "2024.09.03"
+androidxCore = "1.13.1"
+lifecycle = "2.8.6"
+activityCompose = "1.9.2"
+
+[libraries]
+junit = { module = "junit:junit", version.ref = "junit" }
+zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
+androidx-lifecycle-runtime = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+compose-ui = { module = "androidx.compose.ui:ui" }
+compose-material3 = { module = "androidx.compose.material3:material3" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }

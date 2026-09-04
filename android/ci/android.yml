@@ -1,0 +1,143 @@
+name: Candela CI
+
+# Option B from ANDROID_NATIVE_PLAN.md section 1.3: the dev sandbox cannot reach
+# dl.google.com / Maven Central / services.gradle.org, so the Android toolchain
+# lives here in CI. The pure-Kotlin protocol and vision layers are verified on
+# every push; the APK job activates when the Android modules land (Stage 3+).
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Gate 1: the TypeScript reference still typechecks and the golden vectors are
+  # reproducible. If regenerating the vectors changes a single byte, the protocol
+  # has drifted and the Kotlin port below is no longer trustworthy.
+  # ---------------------------------------------------------------------------
+  golden-vectors:
+    name: Golden vectors are reproducible
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck the frozen TypeScript reference
+        run: npx tsc --noEmit
+
+      - name: Regenerate golden vectors
+        run: npx tsx tools/gen-golden.ts
+
+      - name: Fail if vectors are not byte-reproducible
+        run: |
+          if ! git diff --quiet -- android/core-protocol/src/test/resources/golden; then
+            echo "::error::Golden vectors changed. Either the TS protocol drifted or"
+            echo "::error::generation is non-deterministic. Both are release blockers."
+            git diff --stat -- android/core-protocol/src/test/resources/golden
+            exit 1
+          fi
+          echo "Golden vectors are byte-reproducible."
+
+      - name: Assert /src is untouched by the Android work
+        run: |
+          if ! git diff --quiet HEAD -- src; then
+            echo "::error::/src is the frozen protocol reference and must not be modified."
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------
+  # Gate 2: Kotlin protocol is byte-identical to TypeScript, and the vision gates
+  # behave per the audit. Needs only a JDK.
+  # ---------------------------------------------------------------------------
+  kotlin-verify:
+    name: Protocol parity + vision gates
+    runs-on: ubuntu-latest
+    needs: golden-vectors
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Verify protocol + vision
+        working-directory: android
+        run: gradle --no-daemon verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-reports
+          path: |
+            android/**/build/reports/
+            android/**/build/test-results/
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------
+  # Gate 3: the APK. Skipped until the Android modules are uncommented in
+  # settings.gradle.kts (Stage 3 of the plan), so CI stays green in the meantime
+  # instead of failing red on work that has not started.
+  # ---------------------------------------------------------------------------
+  apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    needs: kotlin-verify
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check whether the app module exists yet
+        id: probe
+        run: |
+          if [ -f android/app/build.gradle.kts ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Android app module not present yet (Stage 3 pending). Skipping APK build."
+          fi
+
+      - name: Set up JDK 17
+        if: steps.probe.outputs.ready == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        if: steps.probe.outputs.ready == 'true'
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        if: steps.probe.outputs.ready == 'true'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Assemble debug APK
+        if: steps.probe.outputs.ready == 'true'
+        working-directory: android
+        run: gradle --no-daemon :app:assembleDebug
+
+      - name: Upload APK
+        if: steps.probe.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: candela-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
