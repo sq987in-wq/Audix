@@ -101,6 +101,18 @@ jobs:
             -include-runtime -d stage46.jar
           java -cp stage46.jar app.candela.camera.CameraLogicTestsKt
 
+      # Stage 8: the blocking SAS gate and the SHA-256 export gate. These are the
+      # security-relevant invariants ("no DATA frame is ingested before BOTH
+      # parties confirm", "no partial file is ever written"), so they gate the
+      # build rather than merely reporting.
+      - name: Verify Stage 8 SAS + export gates
+        run: |
+          kotlinc \
+            android/core-protocol/src/main/kotlin/app/candela/protocol/*.kt \
+            android/core-protocol/src/test/kotlin/app/candela/protocol/*.kt \
+            -include-runtime -d stage8.jar
+          java -cp stage8.jar app.candela.protocol.Stage8TestsKt
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

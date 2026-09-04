@@ -32,5 +32,5 @@ include(":core-vision")
 // the Android call layers build in CI, which has the SDK.
 include(":optical-camera")
 include(":optical-render")
-// include(":platform")
-// include(":app")
+include(":platform")
+include(":app")

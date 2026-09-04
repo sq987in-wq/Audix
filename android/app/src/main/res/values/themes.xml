@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      A dark, non-translucent theme. Not a style preference: the receiver's own
+      screen is a light source pointed at the same scene the camera is metering,
+      so a light theme measurably raises the black level of the captured frame.
+    -->
+    <style name="Theme.Candela" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">#FF0F1115</item>
+        <item name="android:navigationBarColor">#FF0F1115</item>
+        <item name="android:windowBackground">#FF0F1115</item>
+    </style>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  No permissions declared.
+
+  On API 29+ MediaStore's Downloads collection is writable without any storage
+  permission, and the app is offline by design, so there is no INTERNET
+  permission either. An optical-transfer tool that requests network access has
+  undermined its own premise.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />

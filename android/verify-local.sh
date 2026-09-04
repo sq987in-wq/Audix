@@ -62,10 +62,14 @@ java -cp "$OUT/stage46-tests.jar" app.candela.camera.CameraLogicTestsKt
 STAGE46=$?
 
 echo
-if [ $PROTO -eq 0 ] && [ $VISION -eq 0 ] && [ $STAGE46 -eq 0 ]; then
-  echo "VERIFICATION PASSED — protocol wire-compatible, gates and camera/render"
-  echo "                     decision logic behave per audit."
+java -cp "$OUT/protocol-tests.jar" app.candela.protocol.Stage8TestsKt
+STAGE8=$?
+
+echo
+if [ $PROTO -eq 0 ] && [ $VISION -eq 0 ] && [ $STAGE46 -eq 0 ] && [ $STAGE8 -eq 0 ]; then
+  echo "VERIFICATION PASSED — protocol wire-compatible; gates, camera/render and"
+  echo "                     SAS/export logic behave per audit."
   exit 0
 fi
-echo "VERIFICATION FAILED (protocol=$PROTO vision=$VISION stage4/6=$STAGE46)"
+echo "VERIFICATION FAILED (protocol=$PROTO vision=$VISION stage4/6=$STAGE46 stage8=$STAGE8)"
 exit 1

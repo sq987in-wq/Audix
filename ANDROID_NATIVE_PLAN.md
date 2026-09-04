@@ -195,6 +195,29 @@ Every capability is read from `CameraCharacteristics` first, with a documented d
 - **SAS compare must block the data plane** until both humans confirm — this is the one place the web POC knowingly regressed (it displays and continues) and it must not be carried over.
 - Export via MediaStore only after whole-file SHA-256 passes: write to a temp file, verify, then publish. **No partial write on any failure path** (R8).
 
+**Stage 8 as built.** The SAS gate is a domain object (`SasGate`), not a screen,
+and it is enforced inside `ReceiveSession.ingestFrame` rather than in the UI:
+every DATA frame arriving before *both* parties confirm is dropped and counted
+in `framesBlockedBySas`. The test suite proves this by firing a full, correctly
+signed, CRC-valid symbol stream at an unconfirmed session and asserting the
+decoder ingests zero of it and the session never leaves `PAIRING`. One-sided
+confirmation is explicitly not enough — that collapses the ZRTP-style comparison
+to a single endpoint, which is precisely the attack it exists to stop. A
+mismatch is terminal and aborts the session; confirming while the digits differ
+is caught by comparing rather than trusting the tap.
+
+Export is a pure decision (`ExportGate.evaluate`) — completeness, then size
+against the signed header, then whole-file SHA-256 — followed by a staging write
+(`MediaStoreExporter`) that hashes the read-back before publishing and uses
+`IS_PENDING=1` so a partial file is never observable. File names arrive over the
+optical channel and are attacker-influenced even with a valid signature, so they
+are sanitised for path escapes and control characters.
+
+In the UI, "They match" is deliberately *not* the visually dominant control and
+is not pre-focused: a user tapping the biggest green thing without reading the
+digits is the entire attack. Screen routing derives solely from `SessionState`,
+so no UI-only navigation state can reach `RECEIVING` without passing `PAIRING`.
+
 ### Stage 9 — Hardening and device matrix
 
 Resume/multi-file via session id + manifest; OEM matrix (Pixel / Samsung / OnePlus / Xiaomi differ in AF behaviour and panel scan modes); optional SAS-derived XChaCha20-Poly1305 payload encryption; documented, explicit non-goals (direct sun, privacy film, handheld motion, "Bluetooth replacement").
@@ -212,9 +235,9 @@ Resume/multi-file via session id + manifest; OEM matrix (Pixel / Samsung / OnePl
 | 4 Camera2 C1 freeze | **DONE** | decision logic: sandbox (122 assertions). Camera2 call layer: CI compile + on-device exit test |
 | 5 gated ROI decode | **DONE** (pipeline) | `DecodePipeline` wires gate→ROI→ZXing; throughput numbers need a device |
 | 6 sender render path | **DONE** | pacing logic: sandbox. SurfaceView layer: CI compile + on-device |
-| 7 thermal governor | partial — `HoldTimePlan.derate` ladder done; `PowerManager` listener pending |
-| 8 Compose shell / coach / SAS gate | not started |
-| 9 hardening, device matrix | not started |
+| 7 thermal governor | partial | `HoldTimePlan.derate` ladder done in sandbox; `PowerManager` listener pending |
+| 8 Compose shell / coach / SAS gate | **DONE** (logic) | gate logic: sandbox (65 assertions). Compose/MediaStore layer: CI compile + on-device |
+| 9 hardening, device matrix | not started | |
 
 **The pure/main source-set split.** `:optical-camera` and `:optical-render` each
 carry two source roots. `src/pure/kotlin` holds the decision logic — which
