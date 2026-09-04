@@ -31,3 +31,7 @@ val visionTest = tasks.register<JavaExec>("visionTest") {
 }
 
 tasks.named("test") { dependsOn(visionTest) }
+
+tasks.withType<Test> {
+    failOnNoDiscoveredTests = false
+}
